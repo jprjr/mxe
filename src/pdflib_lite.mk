@@ -16,12 +16,13 @@ define $(PKG)_UPDATE
 endef
 
 define $(PKG)_BUILD
+	cd '$(1)' && mv configure.in configure.ac
     cd '$(1)' && aclocal -I config --install
     cd '$(1)' && autoconf
     cd '$(1)' && ./configure \
         --host='$(TARGET)' \
         --build="`config.guess`" \
-        --disable-shared \
+		$(if $(BUILD_STATIC),--disable-shared --enable-static,--enable-shared --disable-static) \
         --prefix='$(PREFIX)/$(TARGET)' \
         --without-openssl \
         --without-java \
@@ -37,4 +38,3 @@ define $(PKG)_BUILD
     $(MAKE) -C '$(1)/libs' -j 1 install
 endef
 
-$(PKG)_BUILD_SHARED =

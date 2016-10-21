@@ -1,0 +1,545 @@
+diff --git a/src/FTContour.cpp b/src/FTContour.cpp
+index cef1f3b..6b92812 100644
+--- a/src/FTContour.cpp
++++ b/src/FTContour.cpp
+@@ -33,6 +33,9 @@
+ 
+ static const unsigned int BEZIER_STEPS = 5;
+ 
++#ifndef M_PI
++#define M_PI 3.14159265358979323846
++#endif
+ 
+ void FTContour::AddPoint(FTPoint point)
+ {
+diff --git a/src/FTFace.h b/src/FTFace.h
+index 0e903b5..4a35f5a 100644
+--- a/src/FTFace.h
++++ b/src/FTFace.h
+@@ -141,6 +141,24 @@ class FTFace
+          */
+         FT_Error Error() const { return err; }
+ 
++        //TECGRAF
++        const char* GetFamilyName () const
++        {
++          return (*ftFace)->family_name;
++        }
++
++        //TECGRAF
++        bool IsBold () const
++        {
++          return (*ftFace)->style_flags & FT_STYLE_FLAG_BOLD;
++        }
++
++        //TECGRAF
++        bool IsItalic () const
++        {
++          return (*ftFace)->style_flags & FT_STYLE_FLAG_ITALIC;
++        }
++
+     private:
+         /**
+          * The Freetype face
+diff --git a/src/FTFont/FTFont.cpp b/src/FTFont/FTFont.cpp
+index a7206fb..f269c58 100644
+--- a/src/FTFont/FTFont.cpp
++++ b/src/FTFont/FTFont.cpp
+@@ -142,6 +142,23 @@ void FTFont::UseDisplayList(bool useList)
+     return impl->UseDisplayList(useList);
+ }
+ 
++//TECGRAF
++bool FTFont::SetEncoding (FT_Encoding e)
++{
++  return impl->SetEncoding(e);
++}
++
++//TECGRAF
++void FTFont::SetEnableBlend(bool enable)
++{
++  impl->SetEnableBlend(enable);
++}
++
++//TECGRAF
++void FTFont::SetNearestFilter(bool enable)
++{
++  impl->SetNearestFilter(enable);
++}
+ 
+ float FTFont::Ascender() const
+ {
+@@ -161,6 +178,13 @@ float FTFont::LineHeight() const
+ }
+ 
+ 
++//TECGRAF
++float FTFont::MaxWidth() const
++{
++  return impl->MaxWidth();
++}
++
++
+ FTPoint FTFont::Render(const char * string, const int len,
+                        FTPoint position, FTPoint spacing, int renderMode)
+ {
+@@ -200,12 +224,28 @@ FTBBox FTFont::BBox(const wchar_t *string, const int len,
+     return impl->BBox(string, len, position, spacing);
+ }
+ 
+-
+ FT_Error FTFont::Error() const
+ {
+     return impl->err;
+ }
+ 
++//TECGRAF
++const char* FTFont::GetFamilyName () const
++{
++  return impl->GetFamilyName();
++}
++
++//TECGRAF
++bool FTFont::IsBold () const
++{
++  return impl->IsBold();
++}
++
++//TECGRAF
++bool FTFont::IsItalic () const
++{
++  return impl->IsItalic();
++}
+ 
+ //
+ //  FTFontImpl
+@@ -217,7 +257,9 @@ FTFontImpl::FTFontImpl(FTFont *ftFont, char const *fontFilePath) :
+     useDisplayLists(true),
+     load_flags(FT_LOAD_DEFAULT),
+     intf(ftFont),
+-    glyphList(0)
++    glyphList(0),
++    useBlending(false),
++    useNearest(false)
+ {
+     err = face.Error();
+     if(err == 0)
+@@ -355,6 +397,23 @@ void FTFontImpl::UseDisplayList(bool useList)
+     useDisplayLists = useList;
+ }
+ 
++//TECGRAF
++bool FTFontImpl::SetEncoding (FT_Encoding e)
++{
++  return glyphList->CharMap(e);
++}
++
++//TECGRAF
++void FTFontImpl::SetEnableBlend(bool enable)
++{
++    useBlending = enable;
++}
++
++void FTFontImpl::SetNearestFilter(bool enable)
++{
++    useNearest = enable;
++}
++
+ 
+ float FTFontImpl::Ascender() const
+ {
+@@ -374,6 +433,13 @@ float FTFontImpl::LineHeight() const
+ }
+ 
+ 
++//TECGRAF
++float FTFontImpl::MaxWidth() const
++{
++  return charSize.Width();
++}
++
++
+ template <typename T>
+ inline FTBBox FTFontImpl::BBoxI(const T* string, const int len,
+                                 FTPoint position, FTPoint spacing)
+@@ -534,6 +600,16 @@ bool FTFontImpl::CheckGlyph(const unsigned int characterCode)
+         return false;
+     }
+ 
++    // TECGRAF
++    if (load_flags == FT_LOAD_DEFAULT &&
++        ftSlot->format == FT_GLYPH_FORMAT_BITMAP &&
++        ftSlot->bitmap.num_grays == 0)
++    {
++        /* workaround for ClearType fonts */
++        load_flags |= FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
++        ftSlot = face.Glyph(glyphIndex, load_flags);
++    }
++
+     FTGlyph* tempGlyph = intf->MakeGlyph(ftSlot);
+     if(!tempGlyph)
+     {
+@@ -550,3 +626,20 @@ bool FTFontImpl::CheckGlyph(const unsigned int characterCode)
+     return true;
+ }
+ 
++//TECGRAF
++const char* FTFontImpl::GetFamilyName () const
++{
++  return face.GetFamilyName();
++}
++
++//TECGRAF
++bool FTFontImpl::IsBold () const
++{
++  return face.IsBold();
++}
++
++//TECGRAF
++bool FTFontImpl::IsItalic () const
++{
++  return face.IsItalic();
++}
+diff --git a/src/FTFont/FTFontGlue.cpp b/src/FTFont/FTFontGlue.cpp
+index b23e787..7ec5082 100644
+--- a/src/FTFont/FTFontGlue.cpp
++++ b/src/FTFont/FTFontGlue.cpp
+@@ -180,6 +180,9 @@ C_FUN(void, ftglSetFontOutset, (FTGLfont *f, float front, float back),
+ C_FUN(void, ftglSetFontDisplayList, (FTGLfont *f, int l),
+       return, UseDisplayList, (l != 0));
+ 
++C_FUN(void, ftglSetNearestFilter, (FTGLfont *f, int l),
++      return, SetNearestFilter, (l != 0));
++
+ // float FTFont::Ascender() const;
+ C_FUN(float, ftglGetFontAscender, (FTGLfont *f), return 0.f, Ascender, ());
+ 
+@@ -189,6 +192,10 @@ C_FUN(float, ftglGetFontDescender, (FTGLfont *f), return 0.f, Descender, ());
+ // float FTFont::LineHeight() const;
+ C_FUN(float, ftglGetFontLineHeight, (FTGLfont *f), return 0.f, LineHeight, ());
+ 
++//TECGRAF
++// float FTFont::MaxWidth() const;
++C_FUN(float, ftglGetFontMaxWidth, (FTGLfont *f), return 0.f, MaxWidth, ());
++
+ // void FTFont::BBox(const char* string, float& llx, float& lly, float& llz,
+ //                   float& urx, float& ury, float& urz);
+ extern "C++" {
+diff --git a/src/FTFont/FTFontImpl.h b/src/FTFont/FTFontImpl.h
+index 36c3bf8..c4f2935 100644
+--- a/src/FTFont/FTFontImpl.h
++++ b/src/FTFont/FTFontImpl.h
+@@ -61,12 +61,24 @@ class FTFontImpl
+ 
+         virtual void UseDisplayList(bool useList);
+ 
++        //TECGRAF
++        virtual bool SetEncoding (FT_Encoding e);
++
++        //TECGRAF
++        virtual void SetEnableBlend(bool enable);
++
++        //TECGRAF
++        virtual void SetNearestFilter(bool enable);
++
+         virtual float Ascender() const;
+ 
+         virtual float Descender() const;
+ 
+         virtual float LineHeight() const;
+ 
++        //TECGRAF
++        virtual float MaxWidth() const;
++
+         virtual bool FaceSize(const unsigned int size,
+                               const unsigned int res);
+ 
+@@ -92,6 +104,11 @@ class FTFontImpl
+         virtual FTPoint Render(const wchar_t *s, const int len,
+                                FTPoint, FTPoint, int);
+ 
++        //TECGRAF
++        const char* GetFamilyName () const;
++        bool IsBold () const;
++        bool IsItalic () const;
++
+         /**
+          * Current face object
+          */
+@@ -109,6 +126,20 @@ class FTFontImpl
+          */
+         bool useDisplayLists;
+ 
++        /** TECGRAF
++        * Flag to enable or disable the use of blending inside FTGL
++        * <code>true</code> turns ON blending.
++        * <code>false</code> turns OFF blending.
++        */
++        bool useBlending;
++
++        /** TECGRAF
++        * Flag to enable or disable the use of nearest texture filter inside FTGL
++        * <code>true</code> turns ON nearest.
++        * <code>false</code> turns OFF nearest (linear, the default).
++        */
++        bool useNearest;
++
+         /**
+          * The default glyph loading flags.
+          */
+diff --git a/src/FTFont/FTPixmapFont.cpp b/src/FTFont/FTPixmapFont.cpp
+index 5638ac8..98aad01 100644
+--- a/src/FTFont/FTPixmapFont.cpp
++++ b/src/FTFont/FTPixmapFont.cpp
+@@ -66,7 +66,7 @@ FTGlyph* FTPixmapFont::MakeGlyph(FT_GlyphSlot ftGlyph)
+ FTPixmapFontImpl::FTPixmapFontImpl(FTFont *ftFont, const char* fontFilePath)
+ : FTFontImpl(ftFont, fontFilePath)
+ {
+-    load_flags = FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
++    load_flags = FT_LOAD_DEFAULT; //TECGRAF - was FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
+ }
+ 
+ 
+@@ -75,7 +75,7 @@ FTPixmapFontImpl::FTPixmapFontImpl(FTFont *ftFont,
+                                    size_t bufferSizeInBytes)
+ : FTFontImpl(ftFont, pBufferBytes, bufferSizeInBytes)
+ {
+-    load_flags = FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
++    load_flags = FT_LOAD_DEFAULT; //TECGRAF - was FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
+ }
+ 
+ 
+@@ -90,9 +90,13 @@ inline FTPoint FTPixmapFontImpl::RenderI(const T* string, const int len,
+ 
+     // Protect glPixelStorei() calls (made by FTPixmapGlyphImpl::RenderImpl).
+     glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+-
+-    glEnable(GL_BLEND);
+-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++    
++    //TECGRAF
++    if (useBlending)
++    {
++      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++      glEnable(GL_BLEND);
++    }
+ 
+     glDisable(GL_TEXTURE_2D);
+ 
+@@ -129,3 +133,4 @@ FTPoint FTPixmapFontImpl::Render(const wchar_t * string, const int len,
+     return RenderI(string, len, position, spacing, renderMode);
+ }
+ 
++
+diff --git a/src/FTFont/FTTextureFont.cpp b/src/FTFont/FTTextureFont.cpp
+index 4e385ea..a114041 100644
+--- a/src/FTFont/FTTextureFont.cpp
++++ b/src/FTFont/FTTextureFont.cpp
+@@ -99,7 +99,7 @@ FTTextureFontImpl::FTTextureFontImpl(FTFont *ftFont, const char* fontFilePath)
+     xOffset(0),
+     yOffset(0)
+ {
+-    load_flags = FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
++    load_flags = FT_LOAD_DEFAULT;  //TECGRAF - was FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
+     remGlyphs = numGlyphs = face.GlyphCount();
+ }
+ 
+@@ -117,7 +117,7 @@ FTTextureFontImpl::FTTextureFontImpl(FTFont *ftFont,
+     xOffset(0),
+     yOffset(0)
+ {
+-    load_flags = FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
++    load_flags = FT_LOAD_DEFAULT; //TECGRAF - was FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP;
+     remGlyphs = numGlyphs = face.GlyphCount();
+ }
+ 
+@@ -241,6 +241,11 @@ inline FTPoint FTTextureFontImpl::RenderI(const T* string, const int len,
+ 
+     FTTextureGlyphImpl::ResetActiveTexture();
+ 
++    // TECGRAF renderMode here is always RENDER_ALL,
++    // so we use it to control texture filter
++    if (useNearest)
++        renderMode |= 0x10000;
++
+     FTPoint tmp = FTFontImpl::Render(string, len,
+                                      position, spacing, renderMode);
+ 
+diff --git a/src/FTGL/FTFont.h b/src/FTGL/FTFont.h
+index 0799fff..b87e5a7 100644
+--- a/src/FTGL/FTFont.h
++++ b/src/FTGL/FTFont.h
+@@ -200,6 +200,30 @@ class FTGL_EXPORT FTFont
+          */
+         virtual void UseDisplayList(bool useList);
+ 
++        /** TECGRAF
++        * Sets the CharMap encoding for spcific character in string.
++        *
++        * @param  e CharMap encoding
++        * @return bool If encoding was valid for current font.
++        */
++        virtual bool SetEncoding (FT_Encoding e);
++
++        /** TECGRAF
++        * Enable or disable the use of blending
++        *
++        * @param  useBlend <code>true</code> turns ON blending.
++        *                 <code>false</code> turns OFF blending (default).
++        */
++        virtual void SetEnableBlend(bool enable);
++
++        /** TECGRAF
++        * Enable or disable the use of the nearest filter in texture
++        *
++        * @param  useBlend <code>true</code> turns ON nearest.
++        *                 <code>false</code> turns OFF nearest (default).
++        */
++        virtual void SetNearestFilter(bool enable);
++
+         /**
+          * Get the global ascender height for the face.
+          *
+@@ -221,6 +245,13 @@ class FTGL_EXPORT FTFont
+          */
+         virtual float LineHeight() const;
+ 
++        /**  TECGRAF
++        * Gets the maximum character width for the font.
++        *
++        * @return  Maximum width
++        */
++        virtual float MaxWidth() const;
++
+         /**
+          * Get the bounding box for a string.
+          *
+@@ -362,6 +393,10 @@ class FTGL_EXPORT FTFont
+          */
+         virtual FT_Error Error() const;
+ 
++        //TECGRAF
++        const char* GetFamilyName () const;
++        bool IsBold () const;
++        bool IsItalic () const;
+     protected:
+         /* Allow impl to access MakeGlyph */
+         friend class FTFontImpl;
+@@ -539,6 +574,14 @@ FTGL_EXPORT float ftglGetFontDescender(FTGLfont* font);
+  */
+ FTGL_EXPORT float ftglGetFontLineHeight(FTGLfont* font);
+ 
++/** TECGRAF
++* Gets the maximum character width for the font.
++*
++* @param font  An FTGLfont* object.
++* @return  Maximum width
++*/
++FTGL_EXPORT float ftglGetFontMaxWidth(FTGLfont* font);
++
+ /**
+  * Get the bounding box for a string.
+  *
+@@ -578,6 +621,10 @@ FTGL_EXPORT void ftglRenderFont(FTGLfont* font, const char *string, int mode);
+  */
+ FTGL_EXPORT FT_Error ftglGetFontError(FTGLfont* font);
+ 
++//TECGRAF
++FTGL_EXPORT void ftglSetNearestFilter(FTGLfont* font, int useNearest);
++
++
+ FTGL_END_C_DECLS
+ 
+ #endif  //  __FTFont__
+diff --git a/src/FTGlyph/FTTextureGlyph.cpp b/src/FTGlyph/FTTextureGlyph.cpp
+index a9cf2e8..3f9280c 100644
+--- a/src/FTGlyph/FTTextureGlyph.cpp
++++ b/src/FTGlyph/FTTextureGlyph.cpp
+@@ -129,6 +129,18 @@ const FTPoint& FTTextureGlyphImpl::RenderImpl(const FTPoint& pen,
+     {
+         glBindTexture(GL_TEXTURE_2D, (GLuint)glTextureID);
+         activeTextureID = glTextureID;
++
++        //TECGRAF
++        if (renderMode <= FTGL::RENDER_ALL)  // default
++        {
++            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++        }
++        else
++        {
++            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++        }
+     }
+ 
+     dx = floor(pen.Xf() + corner.Xf());
+diff --git a/src/FTSize.cpp b/src/FTSize.cpp
+index 49f1596..7a088ea 100644
+--- a/src/FTSize.cpp
++++ b/src/FTSize.cpp
+@@ -46,7 +46,10 @@ bool FTSize::CharSize(FT_Face* face, unsigned int pointSize, unsigned int xRes,
+ {
+     if(size != pointSize || xResolution != xRes || yResolution != yRes)
+     {
+-        err = FT_Set_Char_Size(*face, 0L, pointSize * 64, xResolution, yResolution);
++        //TECGRAF
++        // fixed resolution parameter, was xResolution, yResolution
++        // note: char_height is 1/64th of points
++        err = FT_Set_Char_Size(*face, 0L, pointSize * 64, xRes, yRes);
+ 
+         if(!err)
+         {
+@@ -87,11 +90,14 @@ float FTSize::Height() const
+         return 0.0f;
+     }
+ 
+-    if(FT_IS_SCALABLE((*ftFace)))
+-    {
+-        return ((*ftFace)->bbox.yMax - (*ftFace)->bbox.yMin) * ((float)ftSize->metrics.y_ppem / (float)(*ftFace)->units_per_EM);
+-    }
+-    else
++    //TECGRAF
++    // Commented to ensure compatibility with FreeType usage, 
++    // and better results for regular size computation.
++    //if(FT_IS_SCALABLE((*ftFace)))
++    //{
++    //    return ((*ftFace)->bbox.yMax - (*ftFace)->bbox.yMin) * ((float)ftSize->metrics.y_ppem / (float)(*ftFace)->units_per_EM);
++    //}
++    //else
+     {
+         return static_cast<float>(ftSize->metrics.height) / 64.0f;
+     }
+@@ -105,11 +111,14 @@ float FTSize::Width() const
+         return 0.0f;
+     }
+ 
+-    if(FT_IS_SCALABLE((*ftFace)))
+-    {
+-        return ((*ftFace)->bbox.xMax - (*ftFace)->bbox.xMin) * (static_cast<float>(ftSize->metrics.x_ppem) / static_cast<float>((*ftFace)->units_per_EM));
+-    }
+-    else
++    //TECGRAF
++    // Commented to ensure compatibility with FreeType usage, 
++    // and better results for regular size computation.
++    //if(FT_IS_SCALABLE((*ftFace)))
++    //{
++    //    return ((*ftFace)->bbox.xMax - (*ftFace)->bbox.xMin) * (static_cast<float>(ftSize->metrics.x_ppem) / static_cast<float>((*ftFace)->units_per_EM));
++    //}
++    //else
+     {
+         return static_cast<float>(ftSize->metrics.max_advance) / 64.0f;
+     }
+diff --git a/src/FTVectoriser.cpp b/src/FTVectoriser.cpp
+index ea5c571..3ac0840 100644
+--- a/src/FTVectoriser.cpp
++++ b/src/FTVectoriser.cpp
+@@ -36,7 +36,7 @@
+ 
+ #if defined __APPLE_CC__ && __APPLE_CC__ < 5465
+     typedef GLvoid (*GLUTesselatorFunction) (...);
+-#elif defined WIN32 && !defined __CYGWIN__
++#elif (defined WIN32 && !defined __CYGWIN__) || (defined __CYGWIN__ && defined USE_OPENGL32)
+     typedef GLvoid (CALLBACK *GLUTesselatorFunction) ();
+ #else
+     typedef GLvoid (*GLUTesselatorFunction) ();
